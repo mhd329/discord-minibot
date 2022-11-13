@@ -245,7 +245,8 @@ async def end_break(ctx):
         await ctx.send(f"{ctx.author.mention} 님은 아직 휴식을 시작하지 않으셨습니다.")
 
 
-user_set = {}
+all_users = {}
+rescan_user_set = {}
 
 
 @minibot.command(
@@ -258,57 +259,45 @@ user_set = {}
     ]
 )
 async def user_state(ctx, *nickname):
+    nickname = " ".join(nickname)
     if nickname == "모두" or nickname == "all":
         ebd = discord.Embed(title="휴식이", description="휴식시간 알려주는 봇", color=0xFFA07A)
         users = await UsersOnBreak.objects.async_all()
+        i = 1
         for user in users:
-            now_state = "유휴 상태" if user.is_resting else "작업 중"
+            now_state = "쉬고 있음" if user.is_resting else "작업 중"
             ampm = "오전" if user.updated_at.strftime("%p") == "AM" else "오후"
-            pretty_updated_at = user.updated_at.strftime(f"%Y-%m-%d   {ampm} %I:%m:%S")
-            ebd.add_field(
-                name="최근 활동 기록",
-                value=f"{pretty_updated_at}",
-                inline=False,
-            )
-            ebd.add_field(
-                name="현재 상태",
-                value=f"{now_state}",
-                inline=False,
-            )
-            ebd.add_field(
-                name="전체 휴식 횟수",
-                value=f"{user.total_input} 번",
-                inline=True,
-            )
-            ebd.add_field(
-                name="전체 휴식 시간",
-                value=f"{user.total_break} 분",
-                inline=True,
-            )
-            ebd.add_field(
-                name="오늘 휴식한 횟수",
-                value=f"{user.today_input} 번",
-                inline=False,
-            )
-            ebd.add_field(
-                name="오늘 휴식한 시간",
-                value=f"{user.today_break} 분",
-                inline=True,
-            )
-            ebd.set_footer(text="개인 잔여 시간은 개인 검색을 이용해주세요.")
-            await ctx.send(embed=ebd)
+            pretty_updated_at = user.updated_at.strftime(f"{ampm} %I:%m:%S")
+            all_users[
+                i
+            ] = f"{user.name}#{user.discriminator} : {now_state} : {pretty_updated_at}"
+            i += 1
+        all_users_dict_to_str = (
+            str(all_users)
+            .replace("{", "")
+            .replace("}", "")
+            .replace("'", "")
+            .replace(",", "\n")
+        )
+        ebd.add_field(
+            name="전체 유저 상태",
+            value=f"{all_users_dict_to_str}",
+            inline=False,
+        )
+        ebd.set_footer(text="상세 정보는 개인 검색을 이용해주세요.")
+        await ctx.send(embed=ebd)
     else:
         ebd = discord.Embed(title="휴식이", description="휴식시간 알려주는 봇", color=0xFFA07A)
         target_nickname = " ".join(nickname)
         nickname_set = await UsersOnBreak.objects.async_filter(nickname=target_nickname)
         if nickname_set:
             if len(nickname_set) > 1:
-                i = 1
+                j = 1
                 for user in nickname_set:
-                    user_set[i] = f"{user.name}#{user.discriminator}"
-                    i += 1
+                    rescan_user_set[j] = f"{user.name}#{user.discriminator}"
+                    j += 1
                 dict_to_str = (
-                    str(user_set)
+                    str(rescan_user_set)
                     .replace("{", "")
                     .replace("}", "")
                     .replace("'", "")
@@ -324,7 +313,7 @@ async def user_state(ctx, *nickname):
                 await ctx.send('유저 번호로 재검색 해주세요.\n[예시] "##재검색 1"')
             else:
                 user = await UsersOnBreak.objects.async_get(nickname=target_nickname)
-                now_state = "유휴 상태" if user.is_resting else "작업 중"
+                now_state = "쉬고 있음" if user.is_resting else "작업 중"
                 ampm = "오전" if user.updated_at.strftime("%p") == "AM" else "오후"
                 pretty_updated_at = user.updated_at.strftime(
                     f"%Y-%m-%d   {ampm} %I:%m:%S"
@@ -386,10 +375,10 @@ async def user_state(ctx, *nickname):
 )
 async def rescan(ctx, num):
     ebd = discord.Embed(title="휴식이", description="휴식시간 알려주는 봇", color=0xFFA07A)
-    if user_set[int(num)]:
-        target_name = user_set[int(num)].split("#")[0]
+    if rescan_user_set[int(num)]:
+        target_name = rescan_user_set[int(num)].split("#")[0]
         user = await UsersOnBreak.objects.async_get(name=target_name)
-        now_state = "유휴 상태" if user.is_resting else "작업 중"
+        now_state = "쉬고 있음" if user.is_resting else "작업 중"
         ampm = "오전" if user.updated_at.strftime("%p") == "AM" else "오후"
         pretty_updated_at = user.updated_at.strftime(f"%Y-%m-%d   {ampm} %I:%m:%S")
         ebd.add_field(
