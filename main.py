@@ -27,27 +27,9 @@ minibot = commands.Bot(
 )
 
 
-@minibot.command(
-    aliases=[
-        "서버",
-    ]
-)
 async def debug(ctx):
     await ctx.send(
         f"서버 : {ctx.guild.region}\n서버 인원 : {ctx.guild.member_count}\n지연 시간 : {round(round(minibot.latency, 4)*1000)}ms\n현재시각 : {datetime.today()}"
-    )
-
-
-@minibot.command(
-    aliases=[
-        "p",
-        "핑",
-        "서버",
-    ]
-)
-async def ping(ctx):
-    await ctx.send(
-        f"서버 : {ctx.guild.region}\n서버 인원 : {ctx.guild.member_count}\n지연 시간 : {round(round(minibot.latency, 4)*1000)}ms"
     )
 
 
