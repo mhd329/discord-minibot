@@ -24,7 +24,11 @@ ALLOWED_HOSTS = []
 
 # Application definition
 
-INSTALLED_APPS = ["db", "django_extensions"]
+INSTALLED_APPS = [
+    "db",
+    "django_extensions",
+    "django_async_orm",
+]
 
 DATABASES = {
     "default": {
