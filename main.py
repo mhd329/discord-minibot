@@ -10,10 +10,10 @@ import random
 import discord
 import datetime as dt
 from discord.ext import commands
-from discord.ext.commands import clean_content
 from db.models import UsersOnBreak
 from asgiref.sync import sync_to_async
 from settings import DISCORD_SECRET_TOKEN
+from discord.ext.commands.errors import CommandNotFound
 
 
 intents = discord.Intents.all()
@@ -118,10 +118,22 @@ async def register(ctx):
             old_name = already_user.name
             old_nickname = already_user.nickname
             already_user.name = mentioned_user_name
-            already_user.nickname = mentioned_user_nickname
-            await sync_to_async(to_register.save)()
+            already_user.nickname = (
+                mentioned_user_nickname
+                if mentioned_user_nickname
+                else mentioned_user_name
+            )
+            if already_user.is_resting:
+                now = dt.datetime.today()
+                Total_break_time = now - already_user.updated_at
+                Total_break_time = int(Total_break_time.total_seconds() // 60)
+                already_user.remaining_rest_time -= Total_break_time
+            await sync_to_async(already_user.save)()
+            notice_change_nickname = (
+                mentioned_user_nickname if mentioned_user_nickname else "없음"
+            )
             await ctx.send(
-                f"{ctx.author.mention} : 갱신되었습니다.\n이름 변경 {old_name} >>> {mentioned_user_name}\n닉네임 변경 {old_nickname} >>> {mentioned_user_nickname}"
+                f"{ctx.author.mention} : 갱신되었습니다.\n이름 변경 {old_name} >>> {mentioned_user_name}\n닉네임 변경 {old_nickname} >>> {notice_change_nickname}"
             )
         else:
             await ctx.send(f"{ctx.author.mention} : 이미 등록된 유저입니다.")
@@ -144,7 +156,6 @@ async def register(ctx):
         )
 
 
-# 잔여 휴식시간 모델
 # 모든 유저 정보
 
 
@@ -168,7 +179,6 @@ async def start_break(ctx):
     pretty_now = now.strftime(f"%Y-%m-%d   {ampm} %I:%m:%S")
 
     mentioned_user_name = ctx.author.name
-    mentioned_user_nickname = ctx.author.nick
     mentioned_user_discriminator = ctx.author.discriminator
 
     if await UsersOnBreak.objects.async_filter(
@@ -182,6 +192,7 @@ async def start_break(ctx):
         else:
             break_user.today_break = 0
             break_user.today_input = 1
+            break_user.remaining_rest_time = 70
         break_user.total_input += 1
         break_user.is_resting = 1
         await sync_to_async(break_user.save)()
@@ -195,6 +206,7 @@ async def start_break(ctx):
 @minibot.command(
     aliases=[
         "끝",
+        "종료",
         "다시",
         "복귀",
         "일하기",
@@ -224,8 +236,11 @@ async def end_break(ctx):
         break_user.today_break += Total_break_time
         break_user.total_break += Total_break_time
         break_user.is_resting = 0
+        break_user.remaining_rest_time -= Total_break_time
         await sync_to_async(break_user.save)()
-        await ctx.send(f"{ctx.author.mention} 님의 휴식 종료시간 : {pretty_now}")
+        await ctx.send(
+            f"{ctx.author.mention} 님의 휴식 종료시간 : {pretty_now}\n{ctx.author.mention} 님은 이번 휴식때 {Total_break_time} 분 휴식하셨습니다."
+        )
     else:
         await ctx.send(f"{ctx.author.mention} 님은 아직 휴식을 시작하지 않으셨습니다.")
 
@@ -243,38 +258,21 @@ user_set = {}
     ]
 )
 async def user_state(ctx, *nickname):
-    ebd = discord.Embed(title="휴식이", description="휴식시간 알려주는 봇", color=0xFFA07A)
-    target_nickname = " ".join(nickname)
-    nickname_set = await UsersOnBreak.objects.async_filter(nickname=target_nickname)
-    if nickname_set:
-        if len(nickname_set) > 1:
-            i = 1
-            for user in nickname_set:
-                user_set[i] = f"{user.name}#{user.discriminator}"
-                i += 1
-            dict_to_str = (
-                str(user_set)
-                .replace("{", "")
-                .replace("}", "")
-                .replace("'", "")
-                .replace(",", "\n")
-            )
-            ebd.add_field(
-                name="닉네임이 중복되는 유저들",
-                value=f"{dict_to_str}",
-                inline=False,
-            )
-            ebd.set_footer(text="made by 문현동#2226")
-            await ctx.send(embed=ebd)
-            await ctx.send('유저 번호로 재검색 해주세요.\n[예시] "##재검색 1"')
-        else:
-            user = await UsersOnBreak.objects.async_get(nickname=target_nickname)
-            now_state = "휴식 중" if user.is_resting else "일하는 중"
+    if nickname == "모두" or nickname == "all":
+        ebd = discord.Embed(title="휴식이", description="휴식시간 알려주는 봇", color=0xFFA07A)
+        users = await UsersOnBreak.objects.async_all()
+        for user in users:
+            now_state = "유휴 상태" if user.is_resting else "작업 중"
             ampm = "오전" if user.updated_at.strftime("%p") == "AM" else "오후"
             pretty_updated_at = user.updated_at.strftime(f"%Y-%m-%d   {ampm} %I:%m:%S")
             ebd.add_field(
                 name="최근 활동 기록",
                 value=f"{pretty_updated_at}",
+                inline=False,
+            )
+            ebd.add_field(
+                name="현재 상태",
+                value=f"{now_state}",
                 inline=False,
             )
             ebd.add_field(
@@ -297,17 +295,88 @@ async def user_state(ctx, *nickname):
                 value=f"{user.today_break} 분",
                 inline=True,
             )
-            ebd.add_field(
-                name="현재 상태",
-                value=f"{now_state}",
-                inline=False,
-            )
-            ebd.set_footer(text=f"{user.name} 님의 휴식 정보")
+            ebd.set_footer(text="개인 잔여 시간은 개인 검색을 이용해주세요.")
             await ctx.send(embed=ebd)
     else:
-        await ctx.send(
-            f'{target_nickname} : 등록되지 않은 사용자입니다.\n먼저 "##등록" 명령어로 등록해주세요!\n만약 이름이나 별명이 변경되었다면 "##재등록" 으로 재등록 해주세요!'
-        )
+        ebd = discord.Embed(title="휴식이", description="휴식시간 알려주는 봇", color=0xFFA07A)
+        target_nickname = " ".join(nickname)
+        nickname_set = await UsersOnBreak.objects.async_filter(nickname=target_nickname)
+        if nickname_set:
+            if len(nickname_set) > 1:
+                i = 1
+                for user in nickname_set:
+                    user_set[i] = f"{user.name}#{user.discriminator}"
+                    i += 1
+                dict_to_str = (
+                    str(user_set)
+                    .replace("{", "")
+                    .replace("}", "")
+                    .replace("'", "")
+                    .replace(",", "\n")
+                )
+                ebd.add_field(
+                    name="닉네임이 중복되는 유저들",
+                    value=f"{dict_to_str}",
+                    inline=False,
+                )
+                ebd.set_footer(text="made by 문현동#2226")
+                await ctx.send(embed=ebd)
+                await ctx.send('유저 번호로 재검색 해주세요.\n[예시] "##재검색 1"')
+            else:
+                user = await UsersOnBreak.objects.async_get(nickname=target_nickname)
+                now_state = "유휴 상태" if user.is_resting else "작업 중"
+                ampm = "오전" if user.updated_at.strftime("%p") == "AM" else "오후"
+                pretty_updated_at = user.updated_at.strftime(
+                    f"%Y-%m-%d   {ampm} %I:%m:%S"
+                )
+                ebd.add_field(
+                    name="최근 활동 기록",
+                    value=f"{pretty_updated_at}",
+                    inline=False,
+                )
+                ebd.add_field(
+                    name="현재 상태",
+                    value=f"{now_state}",
+                    inline=False,
+                )
+                ebd.add_field(
+                    name="전체 휴식 횟수",
+                    value=f"{user.total_input} 번",
+                    inline=True,
+                )
+                ebd.add_field(
+                    name="전체 휴식 시간",
+                    value=f"{user.total_break} 분",
+                    inline=True,
+                )
+                ebd.add_field(
+                    name="오늘 휴식한 횟수",
+                    value=f"{user.today_input} 번",
+                    inline=False,
+                )
+                ebd.add_field(
+                    name="오늘 휴식한 시간",
+                    value=f"{user.today_break} 분",
+                    inline=True,
+                )
+                if user.is_resting:
+                    now = dt.datetime.today()
+                    Total_break_time = now - user.updated_at
+                    Total_break_time = int(Total_break_time.total_seconds() // 60)
+                    remaining_rest_time = user.remaining_rest_time - Total_break_time
+                else:
+                    remaining_rest_time = user.remaining_rest_time
+                ebd.add_field(
+                    name="잔여 휴식시간",
+                    value=f"{remaining_rest_time}",
+                    inline=False,
+                )
+                ebd.set_footer(text=f"{user.name} 님의 휴식 정보")
+                await ctx.send(embed=ebd)
+        else:
+            await ctx.send(
+                f'{target_nickname} : 등록되지 않은 사용자입니다.\n먼저 "##등록" 명령어로 등록해주세요!\n만약 이름이나 별명이 변경되었다면 "##재등록" 으로 재등록 해주세요!'
+            )
 
 
 @minibot.command(
@@ -320,12 +389,17 @@ async def rescan(ctx, num):
     if user_set[int(num)]:
         target_name = user_set[int(num)].split("#")[0]
         user = await UsersOnBreak.objects.async_get(name=target_name)
-        now_state = "휴식 중" if user.is_resting else "일하는 중"
+        now_state = "유휴 상태" if user.is_resting else "작업 중"
         ampm = "오전" if user.updated_at.strftime("%p") == "AM" else "오후"
         pretty_updated_at = user.updated_at.strftime(f"%Y-%m-%d   {ampm} %I:%m:%S")
         ebd.add_field(
             name="최근 활동 기록",
             value=f"{pretty_updated_at}",
+            inline=False,
+        )
+        ebd.add_field(
+            name="현재 상태",
+            value=f"{now_state}",
             inline=False,
         )
         ebd.add_field(
@@ -348,9 +422,16 @@ async def rescan(ctx, num):
             value=f"{user.today_break} 분",
             inline=False,
         )
+        if user.is_resting:
+            now = dt.datetime.today()
+            Total_break_time = now - user.updated_at
+            Total_break_time = int(Total_break_time.total_seconds() // 60)
+            remaining_rest_time = user.remaining_rest_time - Total_break_time
+        else:
+            remaining_rest_time = user.remaining_rest_time
         ebd.add_field(
-            name="현재 상태",
-            value=f"{now_state}",
+            name="잔여 휴식시간",
+            value=f"{remaining_rest_time}",
             inline=False,
         )
         ebd.set_footer(text=f"{user.name} 님의 휴식 정보")
@@ -369,6 +450,12 @@ async def rescan(ctx, num):
 )
 async def h(ctx):
     ebd = discord.Embed(title="휴식이", description="휴식시간 알려주는 봇", color=0xFFA07A)
+    ebd.add_field(name="이름이나 별명 변경 시 반드시 재등록 해주세요!", value="##재등록", inline=False)
+    ebd.add_field(
+        name="중간에 재등록 된 경우",
+        value="휴식 종료시 휴식을 취한 시간이 0분으로 출력됩니다.",
+        inline=False,
+    )
     ebd.add_field(name="1. 접두사", value='"##" 로 사용할 수 있어요\n[예시] ##휴식', inline=False)
     ebd.add_field(name="2. 인사", value="##인사", inline=False)
     ebd.add_field(name="3. 사용자 등록", value='"##등록"', inline=False)
@@ -379,8 +466,9 @@ async def h(ctx):
         name="5. 휴식 끝", value='"##복귀"\n[예시] ##끝, ##복귀, ##일하기, ...', inline=False
     )
     ebd.add_field(
-        name="6. 상태", value='"##상태 [검색할 사람의 서버 이름]"\n[예시] ##상태 문현동', inline=False
+        name="6. 상태", value='"##상태 [검색할 사람의 서버 닉네임]"\n[예시] ##상태 문현동', inline=False
     )
+    ebd.add_field(name="만든사람 깃허브", value="https://github.com/mhd329", inline=False)
     ebd.set_footer(text="설정된 명령어 외에도 숨겨져 있는 명령어들이 있답니다~~!!~ 한번 찾아보세요!\n힌트 : ##주사위")
     await ctx.send(embed=ebd)
 

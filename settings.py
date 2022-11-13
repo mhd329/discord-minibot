@@ -17,7 +17,7 @@ DISCORD_SECRET_TOKEN = os.getenv("DISCORD_SECRET_TOKEN")
 SECRET_KEY = "django-insecure-3+xlx91i!7$^by%*-39cotq5gddtid%+$@4u1t@2gld3s6brr#"
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
 ALLOWED_HOSTS = []
 
