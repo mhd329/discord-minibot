@@ -27,6 +27,10 @@ INSTALLED_APPS = [
     "django_extensions",
 ]
 
+MIDDLEWARE = [
+    "whitenoise.middleware.WhiteNoiseMiddleware",
+]
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
