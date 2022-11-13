@@ -15,7 +15,7 @@ from db.models import UsersOnBreak
 from asgiref.sync import sync_to_async
 from settings import DISCORD_SECRET_TOKEN
 
-KST = timezone("Asial/Seoul")
+KST = timezone("Asia/Seoul")
 
 intents = discord.Intents.all()
 watching = discord.Game("시간을 엄격하게 측정")
