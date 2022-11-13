@@ -27,9 +27,16 @@ minibot = commands.Bot(
 )
 
 
+@minibot.command(
+    aliases=[
+        "디버그",
+    ]
+)
 async def debug(ctx):
+    d_today = datetime.now()
+    d_today = d_today.astimezone(KST)
     await ctx.send(
-        f"서버 : {ctx.guild.region}\n서버 인원 : {ctx.guild.member_count}\n지연 시간 : {round(round(minibot.latency, 4)*1000)}ms\n현재시각 : {datetime.today()}"
+        f"서버 : {ctx.guild.region}\n서버 인원 : {ctx.guild.member_count}\n지연 시간 : {round(round(minibot.latency, 4)*1000)}ms\n현재시각 1 : {datetime.today()}\n현재시각 2 : {d_today}"
     )
 
 
