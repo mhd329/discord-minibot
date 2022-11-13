@@ -8,13 +8,14 @@ django.setup()
 
 import random
 import discord
-import datetime as dt
+from pytz import timezone
+from datetime import datetime
 from discord.ext import commands
 from db.models import UsersOnBreak
 from asgiref.sync import sync_to_async
 from settings import DISCORD_SECRET_TOKEN
-from discord.ext.commands.errors import CommandNotFound
 
+KST = timezone("Asial/Seoul")
 
 intents = discord.Intents.all()
 watching = discord.Game("시간을 엄격하게 측정")
@@ -34,7 +35,6 @@ minibot = commands.Bot(
     ]
 )
 async def ping(ctx):
-    members = [member.name for member in ctx.guild.members]
     await ctx.send(
         f"서버 : {ctx.guild.region}\n서버 인원 : {ctx.guild.member_count}\n지연 시간 : {round(round(minibot.latency, 4)*1000)}ms"
     )
@@ -70,11 +70,10 @@ async def babo(ctx):
         "1": f"{ctx.author.mention}은(는) 바보래요!",
         "2": "인간 시대의 끝이 도래했다~~!",
         "3": "메롱",
-        "4": f"휴식이는 {ctx.author.mention}을(를) 무시합니다...",
+        "4": "무슨 소리인지 모르겠어요!",
         "5": "¯\_(ツ)_/¯",
         "6": "메에에~~~!",
     }
-
     await ctx.send(random_say[random_number])
 
 
@@ -124,10 +123,13 @@ async def register(ctx):
                 else mentioned_user_name
             )
             if already_user.is_resting:
-                now = dt.datetime.today()
-                Total_break_time = now - already_user.updated_at
-                Total_break_time = int(Total_break_time.total_seconds() // 60)
-                already_user.remaining_rest_time -= Total_break_time
+                register_today = datetime.now()
+                register_today = register_today.astimezone(KST)
+                register_total_break_time = register_today - already_user.updated_at
+                register_total_break_time = int(
+                    register_total_break_time.total_seconds() // 60
+                )
+                already_user.remaining_rest_time -= register_total_break_time
             await sync_to_async(already_user.save)()
             notice_change_nickname = (
                 mentioned_user_nickname if mentioned_user_nickname else "없음"
@@ -174,9 +176,10 @@ async def register(ctx):
     ]
 )
 async def start_break(ctx):
-    now = dt.datetime.today()
-    ampm = "오전" if now.strftime("%p") == "AM" else "오후"
-    pretty_now = now.strftime(f"%Y-%m-%d   {ampm} %I:%m:%S")
+    start_today = datetime.now()
+    start_today = start_today.astimezone(KST)
+    ampm = "오전" if start_today.strftime("%p") == "AM" else "오후"
+    start_pretty_now = start_today.strftime(f"%Y-%m-%d   {ampm} %I:%m:%S")
 
     mentioned_user_name = ctx.author.name
     mentioned_user_discriminator = ctx.author.discriminator
@@ -187,16 +190,21 @@ async def start_break(ctx):
         break_user = await UsersOnBreak.objects.async_get(
             name=mentioned_user_name, discriminator=mentioned_user_discriminator
         )
-        if break_user.updated_at.strftime("%Y-%m-%d") == now.strftime("%Y-%m-%d"):
-            break_user.today_input += 1
+        if break_user.is_resting:
+            await ctx.send(f"{ctx.author.mention} 이미 휴식중인 유저입니다.")
         else:
-            break_user.today_break = 0
-            break_user.today_input = 1
-            break_user.remaining_rest_time = 70
-        break_user.total_input += 1
-        break_user.is_resting = 1
-        await sync_to_async(break_user.save)()
-        await ctx.send(f"{ctx.author.mention} 님의 휴식 시작시간 : {pretty_now}")
+            if break_user.updated_at.strftime("%Y-%m-%d") == start_today.strftime(
+                "%Y-%m-%d"
+            ):
+                break_user.today_input += 1
+            else:
+                break_user.today_break = 0
+                break_user.today_input = 1
+                break_user.remaining_rest_time = 70
+            break_user.total_input += 1
+            break_user.is_resting = True
+            await sync_to_async(break_user.save)()
+            await ctx.send(f"{ctx.author.mention} 님의 휴식 시작시간 : {start_pretty_now}")
     else:
         await ctx.send(
             f'{ctx.author.mention} : 등록되지 않은 사용자입니다.\n먼저 "##등록" 명령어로 등록해주세요!\n만약 이름이나 별명이 변경되었다면 "##재등록" 으로 재등록 해주세요!'
@@ -218,9 +226,10 @@ async def start_break(ctx):
     ]
 )
 async def end_break(ctx):
-    now = dt.datetime.today()
-    ampm = "오전" if now.strftime("%p") == "AM" else "오후"
-    pretty_now = now.strftime(f"%Y-%m-%d   {ampm} %I:%m:%S")
+    end_today = datetime.now()
+    end_today = end_today.astimezone(KST)
+    ampm = "오전" if end_today.strftime("%p") == "AM" else "오후"
+    end_pretty_now = end_today.strftime(f"%Y-%m-%d   {ampm} %I:%m:%S")
 
     mentioned_user_name = ctx.author.name
     mentioned_user_discriminator = ctx.author.discriminator
@@ -231,16 +240,19 @@ async def end_break(ctx):
         break_user = await UsersOnBreak.objects.async_get(
             name=mentioned_user_name, discriminator=mentioned_user_discriminator
         )
-        Total_break_time = now - break_user.updated_at
-        Total_break_time = int(Total_break_time.total_seconds() // 60)
-        break_user.today_break += Total_break_time
-        break_user.total_break += Total_break_time
-        break_user.is_resting = 0
-        break_user.remaining_rest_time -= Total_break_time
-        await sync_to_async(break_user.save)()
-        await ctx.send(
-            f"{ctx.author.mention} 님의 휴식 종료시간 : {pretty_now}\n{ctx.author.mention} 님은 이번 휴식때 {Total_break_time} 분 휴식하셨습니다."
-        )
+        if break_user.is_resting:
+            end_total_break_time = end_today - break_user.updated_at
+            end_total_break_time = int(end_total_break_time.total_seconds() // 60)
+            break_user.today_break += end_total_break_time
+            break_user.total_break += end_total_break_time
+            break_user.is_resting = False
+            break_user.remaining_rest_time -= end_total_break_time
+            await sync_to_async(break_user.save)()
+            await ctx.send(
+                f"{ctx.author.mention} 님의 휴식 종료시간 : {end_pretty_now}\n{ctx.author.mention} 님은 이번 휴식때 {end_total_break_time} 분 휴식하셨습니다."
+            )
+        else:
+            await ctx.send(f"{ctx.author.mention} 이미 작업중인 유저입니다.")
     else:
         await ctx.send(f"{ctx.author.mention} 님은 아직 휴식을 시작하지 않으셨습니다.")
 
@@ -349,15 +361,20 @@ async def user_state(ctx, *nickname):
                     inline=True,
                 )
                 if user.is_resting:
-                    now = dt.datetime.today()
-                    Total_break_time = now - user.updated_at
-                    Total_break_time = int(Total_break_time.total_seconds() // 60)
-                    remaining_rest_time = user.remaining_rest_time - Total_break_time
+                    state_today = datetime.now()
+                    state_today = state_today.astimezone(KST)
+                    state_total_break_time = state_today - user.updated_at
+                    state_total_break_time = int(
+                        state_total_break_time.total_seconds() // 60
+                    )
+                    state_remaining_rest_time = (
+                        user.remaining_rest_time - state_total_break_time
+                    )
                 else:
-                    remaining_rest_time = user.remaining_rest_time
+                    state_remaining_rest_time = user.remaining_rest_time
                 ebd.add_field(
                     name="잔여 휴식시간",
-                    value=f"{remaining_rest_time}",
+                    value=f"{state_remaining_rest_time}",
                     inline=False,
                 )
                 ebd.set_footer(text=f"{user.name} 님의 휴식 정보")
@@ -412,15 +429,18 @@ async def rescan(ctx, num):
             inline=False,
         )
         if user.is_resting:
-            now = dt.datetime.today()
-            Total_break_time = now - user.updated_at
-            Total_break_time = int(Total_break_time.total_seconds() // 60)
-            remaining_rest_time = user.remaining_rest_time - Total_break_time
+            rescan_today = datetime.now()
+            rescan_today = rescan_today.astimezone(KST)
+            rescan_total_break_time = rescan_today - user.updated_at
+            rescan_total_break_time = int(rescan_total_break_time.total_seconds() // 60)
+            rescan_remaining_rest_time = (
+                user.remaining_rest_time - rescan_total_break_time
+            )
         else:
-            remaining_rest_time = user.remaining_rest_time
+            rescan_remaining_rest_time = user.remaining_rest_time
         ebd.add_field(
             name="잔여 휴식시간",
-            value=f"{remaining_rest_time}",
+            value=f"{rescan_remaining_rest_time}",
             inline=False,
         )
         ebd.set_footer(text=f"{user.name} 님의 휴식 정보")
